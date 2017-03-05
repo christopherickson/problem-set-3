@@ -1,6 +1,6 @@
 ---
-title: "Problem Set 3. Due Thurs March 2 5pm"
-author: "Student name"
+title: "Christopher's Awesome Problem Set 3"
+author: "Chris Erickson"
 date: "Feb 23, 2017"
 output: html_document
 ---
@@ -43,6 +43,9 @@ First we need load the data.
 
 ```{r load_raw_data, message = FALSE}
 library(tidyverse)
+library(dplyr)
+library(stringr)
+library(tidyr)
 
 # bgh data
 bgh_url <- 'http://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE43163&format=file&file=GSE43163_CompleteCountTable_Bgh.txt.gz'
@@ -83,13 +86,18 @@ Now that the raw data are loaded, your first task is to tidy the data with `tidy
 The key steps are to `gather()` the data into key-value pairs and then `separate()` the information from the key column into new columns.
 
 ```{r problem_1}
-# add tidying code here
+
+# Use gather() to take multiple columns and collape them into key-value pairs. Gather() moves wide data into long data. Will output a key column and a value column based on the genes.name column.
+
+# Separate does the opposite, turns long data into wide. In this case, the concatenated data separated by '_' is separated into 4 columns.
+
+raw_data %>% gather(key, value, -gene.name) %>% separate(key, into = c('plant', 'fungus', 'time.point', 'rep'), sep = '_') -> cleaned_data
 
 # report the cleaned_data by just naming it, uncomment the following line:
 # cleaned_data
 ```
 
-## Problem 3
+## Problem 2
 
 You need to translate what you learned on the command line into the R world.
 
@@ -100,7 +108,15 @@ raw_data | awk '$4 == "6hpi"' | sort -k6nr | head -n 1 | cut -f2
 ```
 
 ```{r}
-# translate to dplyr code
+
+#First, filter() will select the rows from the data.table with the 6hpi timepoint. Then, datya will be arrang so that the gene with the highest expression will be on top, using arrange() on the 'value' variable.
+
+filter(cleaned_data, time.point == "6hpi") %>% arrange(desc(value)) -> highest
+
+#The plant with the highest gene expression will then be selected.
+
+head(highest, n = 1L) %>% select(plant)
+
 ```
 
 Which plant / fungus pair has the highest expression in the 18hpi time point?
@@ -110,7 +126,10 @@ raw_data | awk '$4 == "18hpi"' | sort -k6nr | head -n 1 | cut -f2,3
 ```
 
 ```{r}
-# translate to dplyr code
+#To try something different, first filter the data to select the 18hpi timepoint as above. Then arrange the data so that the gene with the highest expression (value) will be first using arrange().
+
+filter(cleaned_data, time.point =="18hpi") %>% arrange(desc(value)) %>% head(n = 1L) %>% select(plant, fungus)
+
 ```
 
 ## Problem 3
@@ -126,9 +145,20 @@ Identify the top 3 most consistently differentially expressed genes between the 
 1. Create a new table from the cleaned data by moving each `hpi` value to a new column name, with counts for each in the column (hint: use a `tidyr` verb). It is helpful to reformat the `hpi` values by converting from e.g. `6hpi` to `hpi.6`. You can use `mutate` to do this, i.e.:
 
 ```{r reformat_time, eval=FALSE}
+#First, add two new columns with mutate(): one named time.value which is the time.point column but without the 'hpi'. Use str_replace to replace 'hpi' with nothing ''. Second one is named time.hpi, and concatenates 'hpi.' to the time.value column giving 'hpi.6.' 
+
+library(stringr)
+
 cleaned_data %>%
   mutate(time.value = str_replace(time.point, 'hpi', ''),
-         time.hpi = str_c('hpi.', time.value))
+         time.hpi = str_c('hpi.', time.value)) -> cleaned_data_1
+
+#Then we want to create new columns of each of the timepoints. In time.point, there are 4 timepoints 6,12,18,24hpi but they are all in this single time.point column. We want each time point to be its own variable, and can use 'spread' to do this. 
+
+#Note: the time.point and time.value columns must be removed before spreading in order to 'collapse' the values for each time point onto a single row. If not, each timepoint will have a value on its own row, so then can't subtract 24h-6h; values will be 'NA'.
+
+cleaned_data_1 %>% select(-time.point, -time.value) %>% spread(time.hpi, value) -> cleaned_data_2
+
 ```
 
 2. Create a new column containing the expression difference between the relevant time points.
@@ -138,11 +168,36 @@ cleaned_data %>%
 4. Sort by these statistics and use the `dplyr` verb `slice` to pull the ones you want (i.e., the top 3). Note you will have to remove `gene.name` from the grouping so that sorting works.
 
 ```{r problem_3}
+
+# Now differences between the values from first and last timepoints, 24hr-6hr, can be analyzed. Add a new column giving this difference, expr_data, with mutate().
+
+cleaned_data_2 %>% mutate(expr.diff = hpi.24 - hpi.6) -> expr_data
+
+# Calculate the summary statistics (mean and variance) using summarise(), after grouping with group_by(). 
+
+expr_data %>% group_by(plant, fungus, gene.name) %>% summarise(meanval = mean(expr.diff), expr.var = var(hpi.24), expr.diff.var = var(expr.diff)) -> expr_data_sumd
+
+# Now remove the genes that have a mean value of 0. These rows also have variance value of 0, and interfere with the final step. Is this necessary?
+
+expr_data_sumd %>% filter(meanval > 0) %>% arrange(desc(meanval)) -> expr_data_final
+
+#Now that we have the expression difference (expr.diff) and the vairance (expr.diff.var) we can use select(for columns) and filter(for rows) to identify the top 3 gene names with the highest expression difference (highest mean(expr.diff)) and lowest variance (lowest expr.diff.var). Not sure what to do with slice(), and why remove gene.name?
+
+head(expr_data_final, n=3) %>% select(gene.name)
+
 ```
 
 ## Problem 4
 
 Now examine the above final data frame above and write a few sentences putting inline code in least 3 places. For example, There are `r nrow(mtcars)` rows of data in `mtcars`.
+
+This analysis in problem 3 finds the highest difference in gene expression across the time points from 6 to 24hrs with the lowest variance. 
+```{r}
+
+
+
+```
+
 
 ## Problem 5
 
@@ -159,4 +214,7 @@ Plot the expression (`value`) by time (`hpi`) for the above genes. Format the pl
 Extra credit: add error bars to the plot (use `geom_errorbar`).
 
 ```{r problem_5}
+
+
+
 ```
