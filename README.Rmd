@@ -56,7 +56,8 @@ raw_data <- read_tsv(bgh_url, skip = 2)
 # the header for the first column is "NA", set it manually
 names(raw_data)[1] <- 'gene.name'
 
-raw_data <- as_data_frame(raw_data)
+raw_data <- as_data_frame(raw_data) #Converts into tibble
+
 ```
 
 # Problems
@@ -87,14 +88,14 @@ The key steps are to `gather()` the data into key-value pairs and then `separate
 
 ```{r problem_1}
 
-# Use gather() to take multiple columns and collape them into key-value pairs. Gather() moves wide data into long data. Will output a key column and a value column based on the genes.name column.
+#Note raw_data has rows of gene.names, and columns of each observation. It has plantname_fungusname_timepoint_replicate, and this needs to be broken up into their own variables.
+
+# Use gather() to take multiple columns and collape them into key-value pairs. Gather() moves wide data into long data. Will output a key column and a value column based on the genes.name column. How does it know???????????????
 
 # Separate does the opposite, turns long data into wide. In this case, the concatenated data separated by '_' is separated into 4 columns.
 
 raw_data %>% gather(key, value, -gene.name) %>% separate(key, into = c('plant', 'fungus', 'time.point', 'rep'), sep = '_') -> cleaned_data
 
-# report the cleaned_data by just naming it, uncomment the following line:
-# cleaned_data
 ```
 
 ## Problem 2
@@ -109,7 +110,7 @@ raw_data | awk '$4 == "6hpi"' | sort -k6nr | head -n 1 | cut -f2
 
 ```{r}
 
-#First, filter() will select the rows from the data.table with the 6hpi timepoint. Then, datya will be arrang so that the gene with the highest expression will be on top, using arrange() on the 'value' variable.
+#First, filter() will select the rows from the data.table with the 6hpi timepoint. Then, data will be arranged so that the gene with the highest expression will be on top, using arrange() on the 'value' variable.
 
 filter(cleaned_data, time.point == "6hpi") %>% arrange(desc(value)) -> highest
 
@@ -132,6 +133,7 @@ filter(cleaned_data, time.point =="18hpi") %>% arrange(desc(value)) %>% head(n =
 
 ```
 
+
 ## Problem 3
 
 Identify the top 3 most consistently differentially expressed genes between the earliest and latest time points for each combination of `plant` and `fungus` strains.
@@ -144,8 +146,8 @@ Identify the top 3 most consistently differentially expressed genes between the 
 
 1. Create a new table from the cleaned data by moving each `hpi` value to a new column name, with counts for each in the column (hint: use a `tidyr` verb). It is helpful to reformat the `hpi` values by converting from e.g. `6hpi` to `hpi.6`. You can use `mutate` to do this, i.e.:
 
-```{r reformat_time, eval=FALSE}
-#First, add two new columns with mutate(): one named time.value which is the time.point column but without the 'hpi'. Use str_replace to replace 'hpi' with nothing ''. Second one is named time.hpi, and concatenates 'hpi.' to the time.value column giving 'hpi.6.' 
+```{r reformat_time}
+#First, add two new columns with mutate(): one named time.value which is the time.point column but without the 'hpi'. Use str_replace to replace 'hpi' with nothing ''. Second one is named time.hpi, and concatenates 'hpi.' to the time.value column giving 'hpi.6.' This separation makes data manipulation easier in the long run.
 
 library(stringr)
 
@@ -153,9 +155,9 @@ cleaned_data %>%
   mutate(time.value = str_replace(time.point, 'hpi', ''),
          time.hpi = str_c('hpi.', time.value)) -> cleaned_data_1
 
-#Then we want to create new columns of each of the timepoints. In time.point, there are 4 timepoints 6,12,18,24hpi but they are all in this single time.point column. We want each time point to be its own variable, and can use 'spread' to do this. 
+#Then we want to create new columns (variables) for each of the timepoints. In time.point, there are 4 timepoints 6,12,18,24hpi but they are all in this single time.point column. We want each time point to be its own variable, and can use 'spread' to do this. Spread does the opposite of gather, it makes long data wide
 
-#Note: the time.point and time.value columns must be removed before spreading in order to 'collapse' the values for each time point onto a single row. If not, each timepoint will have a value on its own row, so then can't subtract 24h-6h; values will be 'NA'.
+#Note: the time.point and time.value columns must be removed before spreading in order to 'collapse' the values for each time point onto a single row. If not, each timepoint will have a value on its own row, so then can't subtract 24h-6h; values will be 'NA'. Show every column except time.point and time.value by using select(-columnnametojettison). 
 
 cleaned_data_1 %>% select(-time.point, -time.value) %>% spread(time.hpi, value) -> cleaned_data_2
 
@@ -173,17 +175,17 @@ cleaned_data_1 %>% select(-time.point, -time.value) %>% spread(time.hpi, value) 
 
 cleaned_data_2 %>% mutate(expr.diff = hpi.24 - hpi.6) -> expr_data
 
-# Calculate the summary statistics (mean and variance) using summarise(), after grouping with group_by(). 
+# Calculate the summary statistics (mean and variance) using summarise(), after grouping with group_by(). Grouping here makes groups of plants, fungi, and gene names. Makes 3 groups????? Its commonly useful to report summary statistics on groups of data, rather than on the whole data set. Grouping and then summarizing will do just that. 
 
 expr_data %>% group_by(plant, fungus, gene.name) %>% summarise(meanval = mean(expr.diff), expr.var = var(hpi.24), expr.diff.var = var(expr.diff)) -> expr_data_sumd
 
-# Now remove the genes that have a mean value of 0. These rows also have variance value of 0, and interfere with the final step. Is this necessary?
+#Now that we have the expression difference (expr.diff) and the vairance (expr.diff.var) we can use select(for columns) and filter(for rows) to identify the top 3 gene names with the highest expression difference (highest mean(expr.diff)) and lowest variance (lowest expr.diff.var). Do this using arrange() by meanval and then the variance.
 
-expr_data_sumd %>% filter(meanval > 0) %>% arrange(desc(meanval)) -> expr_data_final
+arrange(expr_data_sumd, desc(meanval), expr.diff.var) -> expr_data_sumd
 
-#Now that we have the expression difference (expr.diff) and the vairance (expr.diff.var) we can use select(for columns) and filter(for rows) to identify the top 3 gene names with the highest expression difference (highest mean(expr.diff)) and lowest variance (lowest expr.diff.var). Not sure what to do with slice(), and why remove gene.name?
+head(expr_data_sumd, n=3) %>% select(gene.name) -> top3
 
-head(expr_data_final, n=3) %>% select(gene.name)
+top3
 
 ```
 
@@ -192,12 +194,8 @@ head(expr_data_final, n=3) %>% select(gene.name)
 Now examine the above final data frame above and write a few sentences putting inline code in least 3 places. For example, There are `r nrow(mtcars)` rows of data in `mtcars`.
 
 This analysis in problem 3 finds the highest difference in gene expression across the time points from 6 to 24hrs with the lowest variance. 
-```{r}
 
-
-
-```
-
+START: `r nrow(raw_data)` genes were analyzed in `r length(unique(cleaned_data$fungus))*length(unique(cleaned_data$plant))` plant-fungi combos. Of these genes, the top 3 most consistently differentially expressed were `r ungroup(top3) %>% select(gene.name) %>% slice(1)`, `r ungroup(top3) %>% select(gene.name) %>% slice(2)`, and `r ungroup(top3) %>% select(gene.name) %>% slice(3)`.
 
 ## Problem 5
 
@@ -215,6 +213,10 @@ Extra credit: add error bars to the plot (use `geom_errorbar`).
 
 ```{r problem_5}
 
+filter(cleaned_data, gene.name == "bgh02634" | gene.name == "bgh06450" | gene.name == "bghG000349000001001") -> plotme
 
+library(ggplot2)
+
+ggplot(plotme, aes(time.point, value)) + geom_point()
 
 ```
